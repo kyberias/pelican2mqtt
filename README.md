@@ -34,9 +34,11 @@ Run the tool with --help parameter to get a summary of the settings.
 
 ## Integration with Home Assistant
 
-### MQTT sensors
+Once the program is running and MQTT topics are updating on the MQTT broker, the information can easily be used in Home Assistant.
 
-Pelican2mqtt doesn't yet MQTT discovery. Configuration must be performed manually.
+Pelican2mqtt doesn't yet support MQTT discovery. Configuration must be performed manually.
+
+### MQTT sensors
 
 Temperature and other status sensor can be added to HA by adding the YAML definitions for the sensors in the system's configuration.yaml from
 [this file](ha/configuration.yaml).
