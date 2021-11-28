@@ -1,17 +1,47 @@
 # pelican2mqtt
 
+This program reads serial port communication from Enervent Pelican ACE ventilation machine and publishes the information to MQTT broker.
 
 ## Build
+
+TBD
 
 ## Installation
 
 ## Usage
+
+Example command line:
+
+pelican2mqtt -m mqttBrokerHostname -l mqttUsername -w mqttPassword -i COM3
+
+### Command line settings
+
+Run the tool with --help parameter to get a summary of the settings.
+
+|Setting||
+|---|---|
+|-s, --server|Instead of publishing the information to MQTT broker, create a TCP server to publish the raw stream of bytes from the serial port. (Useful for debugging)
+|-c, --client|Instead of reading the bytes from a serial port, connect to a TCP server to get the stream of bytes (Useful for debugging)
+|-h, --host|Host name to use with -c parameter.
+|-p, --port|TCP port to connect or listen. (Default 8990)
+|-i, --serialport|Name of the serial port to use. E.g. COM3
+|-m, --mqttserver|Host name or IP-address of the MQTT broker to connect to (e.g. homeassistant). Default port 1883 is used.
+|-l, --mqttlogin|Username to use when connecting to MQTT broker
+|-w, --mqttpassword|Password to use when connecting to MQTT broker
+
 
 ## Integration with Home Assistant
 
 ## Principle of operation
 
 Enervent Pelican ACE uses a RS-485 serial bus in communicating with remote display and control units. Pelican broadcasts internal settings and statuses through the bus and receives commands and settings from the control units.
+
+## MQTT
+
+The following image shows the information published to the MQTT broker.
+
+![MQTT topics published](MQTT.png "MQTT")
+
 
 ### Serial comm settings
 
