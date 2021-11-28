@@ -45,7 +45,7 @@ Temperature and other status sensor can be added to HA by adding the YAML defini
 
 ![Picture element](ha/screenshot.PNG "Screenshot")
 
-1. Place the [background image](ha/configuration.yaml) into HA's config/www directory.
+1. Place the [background image](ha/Pelican4.png) into HA's config/www directory.
 
 2. Use the YAML in [this file](ha/picture-elements.yaml) in your "picture elements" dashboard element.
 
