@@ -1,12 +1,14 @@
 # pelican2mqtt
 
-This program reads serial port communication from Enervent Pelican ACE ventilation machine and publishes the information to MQTT broker.
+This program reads serial port communication from Enervent Pelican ACE ventilation machine and publishes the information to a MQTT broker.
 
-## Build
+## Build instructions
 
 TBD
 
 ## Installation
+
+TBD
 
 ## Usage
 
@@ -31,6 +33,23 @@ Run the tool with --help parameter to get a summary of the settings.
 
 
 ## Integration with Home Assistant
+
+### MQTT sensors
+
+Pelican2mqtt doesn't yet MQTT discovery. Configuration must be performed manually.
+
+Temperature and other status sensor can be added to HA by adding the YAML definitions for the sensors in the system's configuration.yaml from
+[this file](ha/configuration.yaml).
+
+### Picture element
+
+![Picture element](ha/screenshot.PNG "Screenshot")
+
+1. Place the [background image](ha/configuration.yaml) into HA's config/www directory.
+
+2. Use the YAML in [this file](ha/picture-elements.yaml) in your "picture elements" dashboard element.
+
+
 
 ## Principle of operation
 

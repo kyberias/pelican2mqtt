@@ -1,0 +1,62 @@
+sensor:
+  - platform: mqtt
+    state_topic: "pelicanAC/hrw/rotation"
+    value_template: "{{ value }}"
+    name: "Pelican AC heat recovery wheel status"
+  - platform: mqtt
+    state_topic: "pelicanAC/heater/status"
+    value_template: "{{ value }}"
+    name: "Pelican AC heater status"
+  - platform: mqtt
+    state_topic: "pelicanAC/fans/supply/speed"
+    value_template: "{{ value }}"
+    name: "Pelican AC supply fan current speed"
+  - platform: mqtt
+    state_topic: "pelicanAC/fans/exhaust/speed"
+    value_template: "{{ value }}"
+    name: "Pelican AC exhaust fan current speed"
+  - platform: mqtt
+    state_topic: "pelicanAC/temperatures/exhaust"
+    unit_of_measurement: "°C"
+    value_template: "{{ value }}"
+    name: "Pelican AC poistoilman lämpötila"
+  - platform: mqtt
+    state_topic: "pelicanAC/temperatures/waste"
+    unit_of_measurement: "°C"
+    value_template: "{{ value }}"
+    name: "Pelican AC jäteilman lämpötila"
+  - platform: mqtt
+    state_topic: "pelicanAC/temperatures/supplyAfterHeatRecovery"
+    unit_of_measurement: "°C"
+    value_template: "{{ value }}"
+    name: "Pelican AC tuloilman lämpötila lämmöntalteenoton jälkeen"
+  - platform: mqtt
+    state_topic: "pelicanAC/temperatures/supplyAfterHeatRecoveryAndHeatingAndCooling"
+    unit_of_measurement: "°C"
+    value_template: "{{ value }}"
+    name: "Pelican AC tuloilman lämpötila LTO:n ja lämmityspatterin jälkeen"
+  - platform: mqtt
+    state_topic: "pelicanAC/temperatures/room"
+    unit_of_measurement: "°C"
+    value_template: "{{ value }}"
+    name: "Pelican AC huonelämpötila"
+  - platform: mqtt
+    state_topic: "pelicanAC/temperatures/outside"
+    unit_of_measurement: "°C"
+    value_template: "{{ value }}"
+    name: "Pelican AC ulkolämpötila"
+  - platform: mqtt
+    state_topic: "pelicanAC/heatRecovery/efficiency"
+    unit_of_measurement: "%"
+    value_template: "{{ value }}"
+    name: "Pelican AC LTO hyötysuhde"
+  - platform: mqtt
+    state_topic: "pelicanAC/humidity/roomRelativeHumidity"
+    unit_of_measurement: "%"
+    value_template: "{{ value }}"
+    name: "Pelican AC huoneilman suhteellinen kosteus"
+  - platform: mqtt
+    state_topic: "pelicanAC/cooling/actuator"
+    unit_of_measurement: "%"
+    value_template: "{{ value }}"
+    name: "Pelican AC viilennyksen asento"
