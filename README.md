@@ -40,7 +40,7 @@ Enervent Pelican ACE uses a RS-485 serial bus in communicating with remote displ
 
 The following image shows the information published to the MQTT broker.
 
-![MQTT topics published](MQTT.png "MQTT")
+![MQTT topics published](mqtt.PNG "MQTT")
 
 
 ### Serial comm settings
