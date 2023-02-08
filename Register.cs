@@ -1,7 +1,28 @@
 ﻿using System;
 
-namespace ModbusDump
+namespace pelican2mqtt
 {
+    enum RegAccess
+    {
+        ReadOnly,
+        ReadWrite
+    };
+
+    enum RegUnit
+    {
+        Unknown,
+        Celsius, // two's complement byte
+        Pascal,
+        Minutes,
+        VentilationSpeed, // 1 - 6
+        Percentage, // 100 = 100%
+        PercentageOfMaximum, // 0xFF = 100%,
+        Index,
+        WeekdaysBitfield,
+        BitField,
+        Time // value = hours * 8 + 1 * (each 15 minutes past the hours). E.g. 18.30 = 18 * 8 + 2 = 146 (0x92)
+    }
+
     interface IRegister
     {
         string Address { get; }
@@ -70,6 +91,11 @@ namespace ModbusDump
                     ValueChanged(this, EventArgs.Empty);
                 }
             }
+        }
+
+        public void ClearOldValue()
+        {
+            data = null;
         }
 
         public string Name { get; }

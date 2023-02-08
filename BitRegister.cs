@@ -1,4 +1,5 @@
 ﻿using System;
+using pelican2mqtt;
 
 namespace ModbusDump
 {
