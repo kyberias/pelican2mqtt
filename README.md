@@ -1,36 +1,30 @@
+![Build and test](https://github.com/kyberias/pelican2mqtt/actions/workflows/buildAndTest.yml/badge.svg)
+[![license](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
+
 # pelican2mqtt
 
 This program reads serial port communication from Enervent Pelican ACE ventilation machine and publishes the information to a MQTT broker.
 
 ## Build instructions
 
-TBD
-
-## Installation
-
-TBD
+    dotnet build
 
 ## Usage
 
-Example command line:
+    dotnet run
 
-pelican2mqtt -m mqttBrokerHostname -l mqttUsername -w mqttPassword -i COM3
+## Settings
 
-### Command line settings
+The following settings can be configured in the appsettings.json file.
 
-Run the tool with --help parameter to get a summary of the settings.
-
-|Setting||
+|Setting|Description|
 |---|---|
-|-s, --server|Instead of publishing the information to MQTT broker, create a TCP server to publish the raw stream of bytes from the serial port. (Useful for debugging)
-|-c, --client|Instead of reading the bytes from a serial port, connect to a TCP server to get the stream of bytes (Useful for debugging)
-|-h, --host|Host name to use with -c parameter.
-|-p, --port|TCP port to connect or listen. (Default 8990)
-|-i, --serialport|Name of the serial port to use. E.g. COM3
-|-m, --mqttserver|Host name or IP-address of the MQTT broker to connect to (e.g. homeassistant). Default port 1883 is used.
-|-l, --mqttlogin|Username to use when connecting to MQTT broker
-|-w, --mqttpassword|Password to use when connecting to MQTT broker
+|mqtt:broker|Hostname of the MQTT broker
+|mqtt:username|Username used to login to the MQTT broker
+|mqtt:password|MQTT broker password
+|serialPort|Name of the serial port to open, e.g. COM3
 
+You may also customize the topics used to report different registers.
 
 ## Integration with Home Assistant
 
