@@ -28,7 +28,7 @@ namespace pelican2mqtt
                     config.AddCommandLine(args);
                     config.AddEnvironmentVariables();
                     config.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
-                    //config.AddJsonFile($"appsettings.{env.EnvironmentName}.json", optional: true, reloadOnChange: true);
+                    config.AddJsonFile($"appsettings.{env.EnvironmentName}.json", optional: true, reloadOnChange: true);
                 });
     }
 }

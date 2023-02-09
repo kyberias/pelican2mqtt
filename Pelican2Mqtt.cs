@@ -8,34 +8,13 @@ using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using ModbusDump;
 using MQTTnet;
 using MQTTnet.Client;
 using MQTTnet.Client.Connecting;
 using MQTTnet.Client.Options;
+using pelican2mqtt.Pelican;
 
 namespace pelican2mqtt;
-
-enum RegAccess
-{
-    ReadOnly,
-    ReadWrite
-};
-
-enum RegUnit
-{
-    Unknown,
-    Celsius, // two's complement byte
-    Pascal,
-    Minutes,
-    VentilationSpeed, // 1 - 6
-    Percentage, // 100 = 100%
-    PercentageOfMaximum, // 0xFF = 100%,
-    Index,
-    WeekdaysBitfield,
-    BitField,
-    Time // value = hours * 8 + 1 * (each 15 minutes past the hours). E.g. 18.30 = 18 * 8 + 2 = 146 (0x92)
-}
 
 class Pelican2Mqtt
 {
@@ -103,140 +82,37 @@ class Pelican2Mqtt
         var byteBuffer = new BufferBlock<byte>();
         var messages = new BufferBlock<byte[]>();
 
-        var registersToDisplay = new[]
-        {
-            0x47, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xf0, 0xf1, 0xf2, 0xf3
-        };
+        var registersSection = config.GetSection("registers");
+        var regs = registersSection.Get<RegisterConfig[]>();
 
-        /*Console.Clear();
-            foreach (var row in registersToDisplay)
+        var registers = regs
+            .SelectMany(r =>
             {
-                Console.WriteLine($"{row:X2}");
-            }*/
+                var reg = new PelicanByteRegister((byte)r.address, (byte)r.index, RegAccess.ReadOnly, r.type);
+                if (r.bits != null && r.bits.Any())
+                {
+                    var bits = r.bits.Select(br => ((IRegister)new PelicanBitRegister(reg, br.bit), br.topic));
+                    return bits.Concat(new[] { ((IRegister)reg,r.topic) });
+                }
 
-        var roomTemperature =
-            new Register(0x47, 0, "temperatures/room", RegAccess.ReadOnly, RegUnit.Celsius);
+                return new[] { ((IRegister)reg,r.topic) };
+            }).ToList();
 
-        var supplyTemperatureAfterHeatRecoveryAndHeatingAndCooling =
-            new Register(0xE6, 0, "temperatures/supplyAfterHeatRecoveryAndHeatingAndCooling", RegAccess.ReadOnly, RegUnit.Celsius);
+        var toMqtt = registers
+            .Where(r => !string.IsNullOrEmpty(r.topic))
+            .Select(r =>
+                r.Item1 is IByteRegister
+                    ? (IMqttRegister)new MqttByteRegister(r.topic, (IByteRegister)r.Item1, log)
+                    : new MqttBitRegister(r.topic, (IBitRegister)r.Item1))
+            .ToList();
 
-        var exhaustTemperature =
-            new Register(0xE6, 1, "temperatures/exhaust", RegAccess.ReadOnly, RegUnit.Celsius);
+        var mqttTopicRoot = config["mqtt:baseTopic"];
 
-        var wasteTemperature =
-            new Register(0xE6, 2, "temperatures/waste", RegAccess.ReadOnly, RegUnit.Celsius);
-
-        var outsideTemperature =
-            new Register(0xE6, 3, "temperatures/outside", RegAccess.ReadOnly, RegUnit.Celsius);
-
-        var returnWaterTemperature =
-            new Register(0xE6, 4, "temperatures/returnWater", RegAccess.ReadOnly, RegUnit.Celsius);
-
-        var supplyTemperatureAfterHeatRecovery =
-            new Register(0xE6, 5, "temperatures/supplyAfterHeatRecovery", RegAccess.ReadOnly, RegUnit.Celsius);
-
-        var supplyAirTempPreset = new Register(0xE7, 0, "settings/temperatures/supply", RegAccess.ReadWrite,
-            RegUnit.Celsius);
-
-        var heatRecoveryEfficiency =
-            new Register(0xF1, 1, "heatRecovery/efficiency", RegAccess.ReadOnly, RegUnit.Percentage);
-        var coolingPercentage =
-            new Register(0xF1, 3, "cooling/actuator", RegAccess.ReadOnly, RegUnit.PercentageOfMaximum);
-
-        var humidity =
-            new Register(0xEA, 3, "humidity/roomRelativeHumidity", RegAccess.ReadOnly, RegUnit.Percentage);
-
-        var regF1_0 =
-            new Register(0xF1, 0, null, RegAccess.ReadOnly, RegUnit.BitField);
-
-        var heatRecoveryWheelOn = new BitRegister(regF1_0, 2, "hrw/rotation");
-        var heaterOn = new BitRegister(regF1_0, 3, "heater/status");
-        var overPressureActive = new BitRegister(regF1_0, 4, "overPressure/status");
-
-        var regF2_3 =
-            new Register(0xF2, 3, null, RegAccess.ReadOnly, RegUnit.BitField);
-
-        var heaterLedState = new BitRegister(regF2_3, 0, "heaterOrCoolingStatus");
-
-        var cookerHood = new BitRegister(regF2_3, 2, "cookerHood/status");
-        var centralVacuumCleaner = new BitRegister(regF2_3, 3, "centralVacuumCleaner/status");
-
-        var supplyFanSpeed = new Register(0xF0, 1, "fans/supply/speed", RegAccess.ReadOnly, RegUnit.VentilationSpeed);
-        var exhaustFanSpeed = new Register(0xF0, 2, "fans/exhaust/speed", RegAccess.ReadOnly, RegUnit.VentilationSpeed);
-
-        var mqttTopicRoot = "pelicanAC";
-
-        var toMqtt = new IRegister[]
-        {
-            roomTemperature,
-            outsideTemperature,
-            exhaustTemperature,
-            wasteTemperature,
-            returnWaterTemperature,
-            supplyAirTempPreset,
-            supplyTemperatureAfterHeatRecovery,
-            supplyTemperatureAfterHeatRecoveryAndHeatingAndCooling,
-            heatRecoveryEfficiency,
-            humidity,
-            heatRecoveryWheelOn,
-            heaterOn,
-            overPressureActive,
-            heaterLedState,
-            cookerHood,
-            centralVacuumCleaner,
-            supplyFanSpeed,
-            exhaustFanSpeed,
-            coolingPercentage
-        };
-
-        var registers = new[]
-        {
-            coolingPercentage,
-            roomTemperature,
-            wasteTemperature,
-            exhaustTemperature,
-            outsideTemperature,
-            returnWaterTemperature,
-            supplyTemperatureAfterHeatRecovery,
-            supplyTemperatureAfterHeatRecoveryAndHeatingAndCooling,
-            supplyAirTempPreset,
-
-            new Register(0xE8, 0, "Puhallinnopeus Tulo asetus", RegAccess.ReadWrite, RegUnit.VentilationSpeed),
-            new Register(0xE8, 1, "Puhallinnopeus Poisto asetus", RegAccess.ReadWrite, RegUnit.VentilationSpeed),
-            new Register(0xE8, 2, "Aikaohjaus Tulo", RegAccess.ReadWrite, RegUnit.VentilationSpeed),
-            new Register(0xE8, 3, "Aikaohjaus Poisto", RegAccess.ReadWrite, RegUnit.VentilationSpeed),
-
-            humidity,
-            new Register(0xEA, 4, "RH raja %", RegAccess.ReadWrite, RegUnit.Percentage),
-            new Register(0xEA, 5, "RH ohjaus säätöväli min", RegAccess.ReadWrite, RegUnit.Minutes),
-
-            new Register(0xEB, 0, "RH tehostus Tulo nopeus", RegAccess.ReadWrite, RegUnit.VentilationSpeed),
-            new Register(0xEB, 1, "RH tehostus Poisto nopeus", RegAccess.ReadWrite, RegUnit.VentilationSpeed),
-            new Register(0xEB, 2, "RH tehostus Tulo paine", RegAccess.ReadWrite, RegUnit.VentilationSpeed),
-            new Register(0xEB, 3, "RH tehostus Poisto paine", RegAccess.ReadWrite, RegUnit.VentilationSpeed),
-
-            new Register(0xEC, 2, "Aikaohjelman numero", RegAccess.ReadWrite, RegUnit.Index),
-            new Register(0xEC, 3, "Aikaohjelman viikonpäivät", RegAccess.ReadWrite, RegUnit.WeekdaysBitfield),
-            new Register(0xEC, 4, "Aikaohjelman aloitusaika", RegAccess.ReadWrite, RegUnit.Time),
-            new Register(0xEC, 5, "Aikaohjelman lopetusaika", RegAccess.ReadWrite, RegUnit.Time),
-
-            new Register(0xED, 2, "Tulo kuuma raja", RegAccess.ReadWrite, RegUnit.Celsius),
-            new Register(0xED, 4, "Poisto kylmä raja", RegAccess.ReadWrite, RegUnit.Celsius),
-            new Register(0xED, 5, "LTO kesä raja", RegAccess.ReadWrite, RegUnit.Celsius),
-
-            new Register(0xEE, 2, "Suodatin raja Pa", RegAccess.ReadWrite, RegUnit.Pascal),
-
-            new Register(0xF0, 3, "Ylipaine aika min.", RegAccess.ReadOnly, RegUnit.Minutes),
-            heatRecoveryEfficiency,
-            supplyFanSpeed,
-            exhaustFanSpeed,
-            regF1_0,
-
-            new Register(0xF2, 1, "Tehostuksen kesto min", RegAccess.ReadWrite, RegUnit.Minutes),
-        };
-
-        var regFile = new ConcurrentDictionary<(byte, byte), Register>(
-            registers.ToDictionary(r => (r.Address, r.Index), r => r));
+        var regFile = new ConcurrentDictionary<(byte, byte), IByteRegister>(
+            registers
+                .Where(r => r.Item1 is IByteRegister)
+                .Select(r => (IByteRegister)r.Item1)
+                .ToDictionary(r => (r.Address, r.Index), r => r));
 
         var mqttQueue = new BufferBlock<(string topic, byte[] payload)>();
 
@@ -250,64 +126,59 @@ class Pelican2Mqtt
 
             while (true)
             {
-                using (var client = factory.CreateMqttClient())
+                using var client = factory.CreateMqttClient();
+
+                try
                 {
-                    try
+                    while (true)
                     {
-                        while (true)
+                        var res = await client.ConnectAsync(mqttOptions, cancel);
+                        log.LogInformation($"MQTT connect result {res.ResultCode}");
+                        if (res.ResultCode == MqttClientConnectResultCode.Success)
                         {
-                            var res = await client.ConnectAsync(mqttOptions, cancel);
-                            log.LogInformation($"MQTT connect result {res.ResultCode}");
-                            if (res.ResultCode == MqttClientConnectResultCode.Success)
-                            {
-                                break;
-                            }
-
-                            await Task.Delay(TimeSpan.FromSeconds(5), cancel);
+                            break;
                         }
 
-                        while (true)
-                        {
-                            await mqttQueue.OutputAvailableAsync(cancel);
-
-                            if (!client.IsConnected)
-                            {
-                                break;
-                            }
-
-                            var msg = await mqttQueue.ReceiveAsync(cancel);
-
-                            await client.PublishAsync(msg.topic, msg.payload);
-                        }
+                        await Task.Delay(TimeSpan.FromSeconds(5), cancel);
                     }
-                    catch (Exception ex)
+
+                    while (true)
                     {
-                        log.LogError(ex, ex.Message);
-                        throw;
+                        await mqttQueue.OutputAvailableAsync(cancel);
+
+                        if (!client.IsConnected)
+                        {
+                            break;
+                        }
+
+                        var msg = await mqttQueue.ReceiveAsync(cancel);
+
+                        log.LogDebug($"Publishing to topic " + msg.topic);
+
+                        await client.PublishAsync(msg.topic, msg.payload);
                     }
+                }
+                catch (Exception ex)
+                {
+                    log.LogError(ex, ex.Message);
+                    throw;
                 }
             }
         }
 
-        async Task Process(ISourceBlock<byte[]> msgs, CancellationToken cancel)
+        async Task ProcessMessagesFromPelican(ISourceBlock<byte[]> msgs, CancellationToken cancel)
         {
             foreach (var reg in toMqtt)
             {
                 reg.ValueChanged += (sender, eventArgs) =>
                 {
-                    var r = (IRegister)sender;
+                    var r = (IMqttRegister)sender;
+                    log.LogDebug($"Mqtt register {r.Address} value changed: {r.Value}");
                     if (r.Value != null && r.Address != null)
                     {
                         var path = mqttTopicRoot + "/" + r.Address;
                         mqttQueue.Post((path, Encoding.ASCII.GetBytes(r.Value)));
-                        //var publishResult = await client.PublishAsync(path, Encoding.ASCII.GetBytes(r.Value));
-                        //log.Debug($"Published {path} <- {r.Value}. Result: {publishResult.ReasonCode}");
                     }
-
-                    /*if (r != null && r.Unit == RegUnit.Bit && r.On.HasValue)
-                        {
-                            await client.PublishAsync(mqttTopicRoot + "/" + r.Name, r.On.Value ? "on" : "off");
-                        }*/
                 };
             }
 
@@ -317,52 +188,32 @@ class Pelican2Mqtt
                 var addr = msg[0];
                 var msglen = msg.Length;
 
-                var row = Array.IndexOf(registersToDisplay, addr);
+                log.LogDebug("Message received");
 
                 for (byte i = 0; i < msglen - 1; i++)
                 {
                     if (!regFile.ContainsKey((addr, i)))
                     {
-                        regFile[(addr, i)] = new Register(addr, i, null, RegAccess.ReadWrite, RegUnit.Unknown);
+                        regFile[(addr, i)] = new PelicanByteRegister(addr, i, RegAccess.ReadWrite, RegUnit.Unknown);
                     }
 
                     var reg = regFile[(addr, i)];
 
-                    /*var color = reg.Name != null
-                            ? (reg.Access == RegAccess.ReadOnly ? ConsoleColor.Green : ConsoleColor.Cyan)
-                            : ConsoleColor.Gray;*/
-
-                    var old = reg.Data;
-
                     reg.Data = msg[i + 1];
-
-                    /*if (row >= 0)
-                        {
-                            if (old != reg.Data)
-                            {
-                                Console.SetCursorPosition(3 + i * 3, row);
-                                Console.ForegroundColor = color;
-                                Console.Write($"{msg[i + 1]:X2}");
-                            }
-                        }
-                        else
-                        {
-                            log.Warn($"Unknown register {addr:X2}, len = {msglen}");
-                        }*/
                 }
             }
         }
 
-        using (var cancel = new CancellationTokenSource())
+        using (var cancel = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken))
         {
             var reader = SerialPortReader(byteBuffer, options.SerialPort, cancel.Token);
 
-            var processor = EnerventProtocolParser.Parse(byteBuffer, messages, cancel.Token);
+            var processor = EnerventProtocolParser.Parse(log, byteBuffer, messages, cancel.Token);
 
             Task publisher = null;
             Task msgProcessor = null;
 
-            msgProcessor = Process(messages, cancel.Token);
+            msgProcessor = ProcessMessagesFromPelican(messages, cancel.Token);
             publisher = MqttPublisher(cancel.Token);
 
             var tasks = new[] { msgProcessor, reader, processor, publisher };
@@ -371,7 +222,7 @@ class Pelican2Mqtt
             {
                 await Task.WhenAny(tasks);
 
-                if (publisher != null && publisher.IsFaulted)
+                if (publisher != null && publisher.IsFaulted && !publisher.IsCanceled)
                 {
                     // Make sure we resend all the values after next reconnect
                     foreach (var reg in regFile)
@@ -404,7 +255,6 @@ class Pelican2Mqtt
                 }
                 catch (OperationCanceledException)
                 {
-
                 }
             }
         }
