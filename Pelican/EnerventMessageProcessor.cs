@@ -32,8 +32,6 @@ class EnerventMessageProcessor
             var addr = msg[0];
             var msglen = msg.Length;
 
-            log.LogDebug("Message received");
-
             for (byte i = 0; i < msglen - 1; i++)
             {
                 if (!regFile.ContainsKey((addr, i)))
@@ -45,6 +43,8 @@ class EnerventMessageProcessor
 
                 reg.Data = msg[i + 1];
             }
+
+            log.LogDebug($"Message for address {addr} received, len {msglen}");
         }
     }
 }

@@ -96,7 +96,12 @@ class MqttPublisher
 
                     log.LogDebug($"Publishing to topic " + msg.topic);
 
-                    await client.PublishAsync(msg.topic, msg.payload);
+                    await client.PublishAsync(new MqttApplicationMessage
+                    {
+                        Topic = msg.topic,
+                        Payload = msg.payload,
+                        Retain = true
+                    });
                 }
             }
             catch (Exception ex)
@@ -135,7 +140,7 @@ class MqttPublisher
             {
                 state_topic = mqttTopicRoot + "/" + reg.Topic,
                 unit_of_measurement = reg.HomeAssistantUnitOfMeasurement,
-                value_template = reg.HomeAssistantPlatform == "sensor" ? "{{ value }}" : "",
+                value_template = reg.HomeAssistantPlatform == "sensor" ? "{{ value }}" : null,
                 device_class = reg.HomeAssistantDeviceClass,
                 settings.name,
                 device = new

@@ -38,6 +38,7 @@ class MqttByteRegister : IMqttRegister
                     return temperature.ToString();
                 case RegUnit.Percentage:
                 case RegUnit.VentilationSpeed:
+                case RegUnit.RelativeHumidity:
                     return reg.Data.GetValueOrDefault().ToString();
                 case RegUnit.PercentageOfMaximum:
                     return ((int)(reg.Data.GetValueOrDefault() / 255.0 * 100)).ToString();
