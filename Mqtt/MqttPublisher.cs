@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -24,6 +23,7 @@ class MqttPublisher
     private readonly ApplicationConfig appConfig;
     private readonly string mqttTopicRoot;
     private readonly string deviceSerialNumber;
+    private readonly bool autoDiscoveryEnabled;
 
     public MqttPublisher(IMqttFactory factory, IConfiguration config, ILogger<MqttPublisher> log, ApplicationConfig appConfig)
     {
@@ -35,6 +35,7 @@ class MqttPublisher
 
         mqttTopicRoot = config["mqtt:baseTopic"];
         deviceSerialNumber = config["deviceSerialNumber"];
+        autoDiscoveryEnabled = bool.Parse(config["homeAssistantAutoDiscovery"]);
     }
 
     public async Task Publish(CancellationToken cancel)
@@ -78,7 +79,7 @@ class MqttPublisher
                     await Task.Delay(TimeSpan.FromSeconds(5), cancel);
                 }
 
-                if (!autoConfigPerformed)
+                if (!autoConfigPerformed && autoDiscoveryEnabled)
                 {
                     await AutoDiscovery(client, cancel);
                     autoConfigPerformed = true;

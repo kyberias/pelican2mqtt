@@ -23,19 +23,17 @@ The following settings can be configured in the appsettings.json file.
 |mqtt:username|Username used to login to the MQTT broker
 |mqtt:password|MQTT broker password
 |serialPort|Name of the serial port to open, e.g. COM3
+|homeAssistantAutoDiscovery|true if pelican2mqtt should automatically register sensors in Home Assistant
 
 You may also customize the topics used to report different registers.
 
 ## Integration with Home Assistant
 
-Once the program is running and MQTT topics are updating on the MQTT broker, the information can easily be used in Home Assistant.
+Pelican2mqtt automatically registers the MQTT topics as entities in Home Assistant using the MQTT discovery mechanism. No manual configuration is needed. This is controlled by the `homeAssistantAutoDiscovery` setting which is enabled by default.
 
-Pelican2mqtt doesn't yet support MQTT discovery. Configuration must be performed manually.
+Pelican's sensors and settings are also grouped in Home Assistant as a "device".
 
-### MQTT sensors
-
-Temperature and other status sensor can be added to HA by adding the YAML definitions for the sensors in the system's configuration.yaml from
-[this file](ha/configuration.yaml).
+![Picture element](ha/device.PNG "Screenshot")
 
 ### Picture element
 
