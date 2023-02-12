@@ -1,18 +1,33 @@
 type: picture-elements
 elements:
-  - type: state-label
-    entity: sensor.pelican_ac_heat_recovery_wheel_status
+  - type: state-icon
+    entity: binary_sensor.filter_change_4_month_reminder
     style:
-      top: 43%
+      top: 39%
+      left: 68.3%
+  - type: state-icon
+    entity: binary_sensor.filter_change_4_month_reminder
+    style:
+      top: 66.3%
+      left: 7.8%
+  - type: state-label
+    entity: binary_sensor.heat_recovery_wheel_state
+    style:
+      font-size: 9pt
+      top: 41%
       left: 30.3%
       color: '#000000'
+  - type: state-icon
+    entity: binary_sensor.heat_recovery_wheel_state
+    style:
+      top: 26%
+      left: 30.3%
   - type: state-label
-    entity: sensor.pelican_ac_heater_status
+    entity: binary_sensor.heater_current_status
     style:
       top: 95%
       left: 50.3%
       font-size: 12px
-      color: '#ff2200'
   - type: state-label
     entity: sensor.pelican_ac_viilennyksen_asento
     style:
@@ -82,4 +97,9 @@ elements:
       top: 75%
       left: 91%
       color: '#00aaaa'
-image: 'http://homeassistant:8123/local/Pelican4.png'
+  - type: state-icon
+    entity: sensor.pelican_ac_huoneilman_suhteellinen_kosteus
+    style:
+      top: 81.5%
+      left: 91%
+image: http://homeassistant:8123/local/Pelican4.png
