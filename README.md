@@ -33,7 +33,7 @@ Pelican2mqtt automatically registers the MQTT topics as entities in Home Assista
 
 Pelican's sensors and settings are also grouped in Home Assistant as a "device".
 
-![Picture element](ha/device.PNG "Screenshot")
+![Picture element](ha/device.png "Screenshot")
 
 ### Picture element
 
