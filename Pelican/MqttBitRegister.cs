@@ -38,6 +38,21 @@ class MqttBitRegister : IMqttRegister
     public bool AutoDiscoveryEnabled { get; }
 
     public string HomeAssistantPlatform => "binary_sensor";
-    public string HomeAssistantDeviceClass => reg.Unit == RegUnit.HeatOnOff ? "heat" : "running";
+    public string HomeAssistantDeviceClass
+    {
+        get
+        {
+            switch (reg.Unit)
+            {
+                case RegUnit.HeatOnOff:
+                    return "heat";
+                case RegUnit.Problem:
+                    return "problem";
+                default:
+                    return "running";
+            }
+        }
+    }
+
     public string HomeAssistantUnitOfMeasurement => null;
 }

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -135,35 +136,65 @@ class MqttPublisher
         foreach (var reg in appConfig.ToMqtt.Where(r => r.AutoDiscoveryEnabled))
         {
             var settings = appConfig.AllRegConfigs.Single(r => r.topic == reg.Topic);
+            var uniqueId = $"Pelican{deviceSerialNumber}_{reg.ObjectId}";
+            var configTopic = $"homeassistant/{reg.HomeAssistantPlatform}/{uniqueId}/config";
 
-            var autoConfig = new
+            if (reg.HomeAssistantPlatform == "sensor")
             {
-                state_topic = mqttTopicRoot + "/" + reg.Topic,
-                unit_of_measurement = reg.HomeAssistantUnitOfMeasurement,
-                value_template = reg.HomeAssistantPlatform == "sensor" ? "{{ value }}" : null,
-                device_class = reg.HomeAssistantDeviceClass,
-                settings.name,
-                device = new
+                var autoConfig = new
                 {
-                    manufacturer = "Enervent",
-                    name = "Pelican",
-                    model = "ACE-CG",
-                    identifiers = new[]
+                    state_topic = mqttTopicRoot + "/" + reg.Topic,
+                    unit_of_measurement = reg.HomeAssistantUnitOfMeasurement,
+                    value_template = "{{ value }}",
+                    device_class = reg.HomeAssistantDeviceClass,
+                    settings.name,
+                    device = new
                     {
-                        "Pelican" + deviceSerialNumber
-                    }
-                },
-                unique_id = $"Pelican{deviceSerialNumber}_{reg.ObjectId}"
-            };
+                        manufacturer = "Enervent",
+                        name = "Pelican",
+                        model = "ACE-CG",
+                        identifiers = new[]
+                        {
+                            "Pelican" + deviceSerialNumber
+                        }
+                    },
+                    unique_id = uniqueId
+                };
 
-            var configTopic = $"homeassistant/{reg.HomeAssistantPlatform}/{autoConfig.unique_id}/config";
-
-            await client.PublishAsync(new MqttApplicationMessage
+                await client.PublishAsync(new MqttApplicationMessage
+                {
+                    Topic = configTopic,
+                    Payload = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(autoConfig)),
+                    Retain = true
+                });
+            }
+            else
             {
-                Topic = configTopic,
-                Payload = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(autoConfig)),
-                Retain = true
-            });
+                var autoConfig = new
+                {
+                    state_topic = mqttTopicRoot + "/" + reg.Topic,
+                    device_class = reg.HomeAssistantDeviceClass,
+                    settings.name,
+                    device = new
+                    {
+                        manufacturer = "Enervent",
+                        name = "Pelican",
+                        model = "ACE-CG",
+                        identifiers = new[]
+                        {
+                            "Pelican" + deviceSerialNumber
+                        }
+                    },
+                    unique_id = uniqueId
+                };
+
+                await client.PublishAsync(new MqttApplicationMessage
+                {
+                    Topic = configTopic,
+                    Payload = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(autoConfig)),
+                    Retain = true
+                });
+            }
         }
     }
 }
