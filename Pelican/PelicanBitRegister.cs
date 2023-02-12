@@ -5,11 +5,13 @@ namespace pelican2mqtt.Pelican
     class PelicanBitRegister : IBitRegister
     {
         private readonly PelicanByteRegister reg;
+        private readonly byte bit;
 
-        public PelicanBitRegister(PelicanByteRegister reg, int bit)
+        public PelicanBitRegister(PelicanByteRegister reg, byte bit, RegUnit unit)
         {
             this.reg = reg;
-            Bit = bit;
+            this.bit = bit;
+            Unit = unit;
 
             reg.ValueChanged += (sender, args) =>
             {
@@ -17,7 +19,12 @@ namespace pelican2mqtt.Pelican
             };
         }
 
-        public int Bit { get; }
+        public byte Address => reg.Address;
+        public byte Index => reg.Index;
+
+        byte IBitRegister.Bit => bit;
+        
+        public RegUnit Unit { get; }
 
         public bool? On
         {
@@ -28,7 +35,7 @@ namespace pelican2mqtt.Pelican
                     return null;
                 }
 
-                return (reg.Data.Value & 1 << Bit) > 0;
+                return (reg.Data.Value & 1 << bit) > 0;
             }
         }
 

@@ -1,8 +1,6 @@
 ﻿namespace pelican2mqtt;
 
-class BitRegisterConfig
+class BitRegisterConfig : RegisterConfigCommon
 {
-    public int bit { get; set; }
-    public string topic { get; set; }
-    public string name { get; set; }
+    public byte bit { get; set; }
 }

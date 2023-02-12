@@ -2,12 +2,17 @@
 
 namespace pelican2mqtt;
 
-class RegisterConfig
+class RegisterConfigCommon
+{
+    public string name { get; set; }
+    public string topic { get; set; }
+    public bool autoDiscovery { get; set; } = false;
+    public RegUnit type { get; set; }
+}
+
+class RegisterConfig : RegisterConfigCommon
 {
     public int address { get; set; }
     public int index { get; set; }
-    public RegUnit type { get; set; }
-    public string name { get; set; }
-    public string topic { get; set; }
     public BitRegisterConfig[] bits { get; set; }
 }

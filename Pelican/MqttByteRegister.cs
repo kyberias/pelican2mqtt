@@ -5,11 +5,12 @@ namespace pelican2mqtt.Pelican;
 
 class MqttByteRegister : IMqttRegister
 {
-    private ILogger log;
+    private readonly ILogger log;
 
-    public MqttByteRegister(string address, IByteRegister reg, ILogger log)
+    public MqttByteRegister(string topic, IByteRegister reg, ILogger log, bool autoDiscoveryEnabled)
     {
-        Address = address;
+        AutoDiscoveryEnabled = autoDiscoveryEnabled;
+        Topic = topic;
         this.reg = reg;
         this.log = log;
 
@@ -24,7 +25,7 @@ class MqttByteRegister : IMqttRegister
 
     private readonly IByteRegister reg;
 
-    public string Address { get; }
+    public string Topic { get; }
 
     public string Value
     {
@@ -47,6 +48,19 @@ class MqttByteRegister : IMqttRegister
     }
 
     public event EventHandler ValueChanged = delegate { };
+
+    public RegUnit Unit => reg.Unit;
+    public string ObjectId => $"register_{reg.Address:X2}_{reg.Index}";
+    public bool AutoDiscoveryEnabled { get; }
+
+    public string HomeAssistantPlatform => "sensor";
+
+    public string HomeAssistantDeviceClass => reg.Unit == RegUnit.Celsius
+        ? "temperature"
+        : (reg.Unit == RegUnit.RelativeHumidity ? "humidity" : null);
+
+    public string HomeAssistantUnitOfMeasurement =>
+        reg.Unit == RegUnit.Celsius ? "°C" : (reg.Unit != RegUnit.VentilationSpeed ? "%" : "");
 
     private static int ConvertTwosComplementByteToInteger(byte rawValue)
     {
