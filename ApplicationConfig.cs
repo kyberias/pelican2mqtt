@@ -16,17 +16,29 @@ class ApplicationConfig
         var registers = regs
             .SelectMany(r =>
             {
-                var reg = new PelicanByteRegister((byte)r.address, (byte)r.index, RegAccess.ReadOnly, r.type);
+                var reg = new PelicanByteRegister((byte)r.address, (byte)r.index, r.writable ? RegAccess.ReadWrite : RegAccess.ReadOnly, r.type);
                 if (r.bits != null && r.bits.Any())
                 {
-                    var bits = r.bits.Select(br => ((IRegister)new PelicanBitRegister(reg, br.bit, br.type), (RegisterConfigCommon)br));
+                    var bits = r.bits.Select(br => ((IRegister)new PelicanBitRegister(reg, br.bit, br.type, br.writable), (RegisterConfigCommon)br));
                     return bits.Concat(new[] { ((IRegister)reg, (RegisterConfigCommon)r) });
                 }
 
                 return new[] { ((IRegister)reg, (RegisterConfigCommon)r) };
             }).ToList();
 
-        AllRegConfigs = regs.SelectMany(c => new[] { c }.Concat(c.bits != null ? c.bits : new RegisterConfigCommon[] { }));
+        var supplyFan = registers.Single(r => r.Item2.topic == "fans/supply/speed").Item1;
+        var exhaustFan = registers.Single(r => r.Item2.topic == "fans/exhaust/speed").Item1;
+
+        var power = new PowerConsumptionCalculator((PelicanByteRegister)supplyFan, (PelicanByteRegister)exhaustFan);
+
+        var allRegConfigs = regs.SelectMany(c => new[] { c }.Concat(c.bits != null ? c.bits : new RegisterConfigCommon[] { })).ToList();
+
+        allRegConfigs.Add(new RegisterConfigCommon
+        {
+            topic = power.Topic,
+            name = "Power"
+        });
+        AllRegConfigs = allRegConfigs;
 
         ToMqtt = registers
             .Where(r => !string.IsNullOrEmpty(r.Item2.topic))
@@ -35,6 +47,8 @@ class ApplicationConfig
                     ? (IMqttRegister)new MqttByteRegister(r.Item2.topic, (IByteRegister)r.Item1, log, r.Item2.autoDiscovery)
                     : new MqttBitRegister(r.Item2.topic, (IBitRegister)r.Item1, r.Item2.autoDiscovery))
             .ToList();
+
+        ToMqtt.Add(power);
 
         Registers = registers;
     }

@@ -54,7 +54,7 @@ class MqttByteRegister : IMqttRegister
     public string ObjectId => $"register_{reg.Address:X2}_{reg.Index}";
     public bool AutoDiscoveryEnabled { get; }
 
-    public string HomeAssistantPlatform => "sensor";
+    public string HomeAssistantPlatform => Writable ? "number" : "sensor";
 
     public string HomeAssistantDeviceClass => reg.Unit == RegUnit.Celsius
         ? "temperature"
@@ -62,6 +62,10 @@ class MqttByteRegister : IMqttRegister
 
     public string HomeAssistantUnitOfMeasurement =>
         reg.Unit == RegUnit.Celsius ? "°C" : (reg.Unit != RegUnit.VentilationSpeed ? "%" : "");
+
+    public bool Writable => reg.Writable;
+    public int Min => reg.Unit == RegUnit.VentilationSpeed ? 1 : 0;
+    public int Max => reg.Unit == RegUnit.VentilationSpeed ? 6 : 100;
 
     private static int ConvertTwosComplementByteToInteger(byte rawValue)
     {

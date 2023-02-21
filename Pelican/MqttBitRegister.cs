@@ -37,17 +37,26 @@ class MqttBitRegister : IMqttRegister
     public string ObjectId => $"register_{reg.Address:X2}_{reg.Index}_{reg.Bit}";
     public bool AutoDiscoveryEnabled { get; }
 
-    public string HomeAssistantPlatform => "binary_sensor";
+    public string HomeAssistantPlatform => Writable ? "switch" : "binary_sensor";
     public string HomeAssistantDeviceClass
     {
         get
         {
+            if (Writable)
+            {
+                return null;
+            }
+
             switch (reg.Unit)
             {
                 case RegUnit.HeatOnOff:
                     return "heat";
                 case RegUnit.Problem:
                     return "problem";
+                case RegUnit.OverpressureOnOff:
+                    return null;
+                case RegUnit.Presence:
+                    return "connectivity";
                 default:
                     return "running";
             }
@@ -55,4 +64,7 @@ class MqttBitRegister : IMqttRegister
     }
 
     public string HomeAssistantUnitOfMeasurement => null;
+    public bool Writable => reg.Writable;
+    public int Min => 0;
+    public int Max => 1;
 }

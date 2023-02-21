@@ -25,4 +25,8 @@ interface IMqttRegister
 
     string HomeAssistantDeviceClass { get; }
     string HomeAssistantUnitOfMeasurement { get; }
+
+    bool Writable { get; }
+    int Min { get; }
+    int Max { get; }
 }

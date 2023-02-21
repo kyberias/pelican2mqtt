@@ -6,12 +6,14 @@ namespace pelican2mqtt.Pelican
     {
         private readonly PelicanByteRegister reg;
         private readonly byte bit;
+        private bool writable;
 
-        public PelicanBitRegister(PelicanByteRegister reg, byte bit, RegUnit unit)
+        public PelicanBitRegister(PelicanByteRegister reg, byte bit, RegUnit unit, bool writable)
         {
             this.reg = reg;
             this.bit = bit;
             Unit = unit;
+            this.writable = writable;
 
             reg.ValueChanged += (sender, args) =>
             {
@@ -40,5 +42,6 @@ namespace pelican2mqtt.Pelican
         }
 
         public event EventHandler ValueChanged = delegate { };
+        public bool Writable => writable;
     }
 }

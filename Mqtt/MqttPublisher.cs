@@ -128,74 +128,86 @@ class MqttPublisher
         if (r.Value != null && r.Topic != null)
         {
             var path = mqttTopicRoot + "/" + r.Topic;
-            mqttQueue.Post((path, Encoding.ASCII.GetBytes(r.Value)));
+            mqttQueue.Post((path, Encoding.UTF8.GetBytes(r.Value)));
         }
     }
 
-    async Task AutoDiscovery(IMqttClient client, CancellationToken cancel)
+    async Task AutoDiscovery(IApplicationMessagePublisher client, CancellationToken cancel)
     {
         foreach (var reg in appConfig.ToMqtt.Where(r => r.AutoDiscoveryEnabled))
         {
             var settings = appConfig.AllRegConfigs.Single(r => r.topic == reg.Topic);
             var uniqueId = $"Pelican{deviceSerialNumber}_{reg.ObjectId}";
             var configTopic = $"homeassistant/{reg.HomeAssistantPlatform}/{uniqueId}/config";
+            var device = new
+            {
+                manufacturer = "Enervent",
+                name = "Pelican",
+                model = "ACE-CG",
+                identifiers = new[]
+                {
+                    "Pelican" + deviceSerialNumber
+                }
+            };
+            object autoConfig;
 
             if (reg.HomeAssistantPlatform == "sensor")
             {
-                var autoConfig = new
+                autoConfig = new
                 {
                     state_topic = mqttTopicRoot + "/" + reg.Topic,
                     unit_of_measurement = reg.HomeAssistantUnitOfMeasurement,
                     value_template = "{{ value }}",
                     device_class = reg.HomeAssistantDeviceClass,
                     settings.name,
-                    device = new
-                    {
-                        manufacturer = "Enervent",
-                        name = "Pelican",
-                        model = "ACE-CG",
-                        identifiers = new[]
-                        {
-                            "Pelican" + deviceSerialNumber
-                        }
-                    },
+                    device,
                     unique_id = uniqueId
                 };
-
-                await client.PublishAsync(new MqttApplicationMessage
-                {
-                    Topic = configTopic,
-                    Payload = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(autoConfig)),
-                    Retain = true
-                });
             }
-            else
+            else if (reg.HomeAssistantPlatform == "number")
             {
-                var autoConfig = new
+                autoConfig = new
+                {
+                    state_topic = mqttTopicRoot + "/" + reg.Topic,
+                    command_topic = mqttTopicRoot + "/" + reg.Topic + "/cmd",
+                    unit_of_measurement = reg.HomeAssistantUnitOfMeasurement,
+                    value_template = "{{ value }}",
+                    device_class = reg.HomeAssistantDeviceClass,
+                    settings.name,
+                    min = reg.Min,
+                    max = reg.Max,
+                    device,
+                    unique_id = uniqueId
+                };
+            }
+            else if (reg.HomeAssistantPlatform == "switch")
+            {
+                autoConfig = new
+                {
+                    state_topic = mqttTopicRoot + "/" + reg.Topic,
+                    command_topic = mqttTopicRoot + "/" + reg.Topic + "/cmd",
+                    settings.name,
+                    device,
+                    unique_id = uniqueId
+                };
+            }
+            else // binary_sensor
+            {
+                autoConfig = new
                 {
                     state_topic = mqttTopicRoot + "/" + reg.Topic,
                     device_class = reg.HomeAssistantDeviceClass,
                     settings.name,
-                    device = new
-                    {
-                        manufacturer = "Enervent",
-                        name = "Pelican",
-                        model = "ACE-CG",
-                        identifiers = new[]
-                        {
-                            "Pelican" + deviceSerialNumber
-                        }
-                    },
+                    device,
                     unique_id = uniqueId
                 };
-
-                await client.PublishAsync(new MqttApplicationMessage
-                {
-                    Topic = configTopic,
-                    Payload = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(autoConfig)),
-                    Retain = true
-                });
             }
+            await client.PublishAsync(new MqttApplicationMessage
+            {
+                Topic = configTopic,
+                Payload = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(autoConfig)),
+                Retain = true
+            }, cancel);
         }
     }
 }

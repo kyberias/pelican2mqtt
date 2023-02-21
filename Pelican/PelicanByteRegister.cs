@@ -26,7 +26,10 @@ namespace pelican2mqtt.Pelican
         // value = hours * 8 + 1 * (each 15 minutes past the hours). E.g. 18.30 = 18 * 8 + 2 = 146 (0x92)
         Time,
         OnOff,
-        Problem
+        Presence,
+        Problem,
+        Watts,
+        OverpressureOnOff
     }
 
     /*interface IRegister
@@ -74,5 +77,6 @@ namespace pelican2mqtt.Pelican
         public RegUnit Unit { get; }
 
         public event EventHandler ValueChanged = delegate { };
+        public bool Writable => Access == RegAccess.ReadWrite;
     }
 }
