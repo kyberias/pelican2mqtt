@@ -177,7 +177,8 @@ class MqttPublisher
                     min = reg.Min,
                     max = reg.Max,
                     device,
-                    unique_id = uniqueId
+                    unique_id = uniqueId,
+                    entity_category = "config"
                 };
             }
             else if (reg.HomeAssistantPlatform == "switch")
@@ -188,7 +189,8 @@ class MqttPublisher
                     command_topic = mqttTopicRoot + "/" + reg.Topic + "/cmd",
                     settings.name,
                     device,
-                    unique_id = uniqueId
+                    unique_id = uniqueId,
+                    entity_category = "config"
                 };
             }
             else // binary_sensor
@@ -199,7 +201,8 @@ class MqttPublisher
                     device_class = reg.HomeAssistantDeviceClass,
                     settings.name,
                     device,
-                    unique_id = uniqueId
+                    unique_id = uniqueId,
+                    entity_category = "diagnostic"
                 };
             }
             await client.PublishAsync(new MqttApplicationMessage
