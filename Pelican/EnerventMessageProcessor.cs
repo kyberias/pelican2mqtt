@@ -29,22 +29,29 @@ class EnerventMessageProcessor
         while (true)
         {
             var msg = await msgs.ReceiveAsync(cancel);
-            var addr = msg[0];
-            var msglen = msg.Length;
-
-            for (byte i = 0; i < msglen - 1; i++)
+            if (msg.Length > 0)
             {
-                if (!regFile.ContainsKey((addr, i)))
+                var addr = msg[0];
+                var msglen = msg.Length;
+
+                for (byte i = 0; i < msglen - 1; i++)
                 {
-                    regFile[(addr, i)] = new PelicanByteRegister(addr, i, RegAccess.ReadWrite, RegUnit.Unknown);
+                    if (!regFile.ContainsKey((addr, i)))
+                    {
+                        regFile[(addr, i)] = new PelicanByteRegister(addr, i, RegAccess.ReadWrite, RegUnit.Unknown);
+                    }
+
+                    var reg = regFile[(addr, i)];
+
+                    reg.Data = msg[i + 1];
                 }
-
-                var reg = regFile[(addr, i)];
-
-                reg.Data = msg[i + 1];
+                log.LogDebug($"Message for address {addr} received, len {msglen}");
+            }
+            else
+            {
+                log.LogWarning($"Message of zero length received.");
             }
 
-            log.LogDebug($"Message for address {addr} received, len {msglen}");
         }
     }
 }
