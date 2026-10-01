@@ -1,16 +1,17 @@
-﻿using System;
-using System.Linq;
-using System.Text;
-using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Threading.Tasks.Dataflow;
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MQTTnet;
 using MQTTnet.Client;
 using MQTTnet.Client.Connecting;
 using MQTTnet.Client.Options;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace pelican2mqtt.Mqtt;
 
@@ -18,18 +19,28 @@ class MqttPublisher
 {
     private readonly IMqttFactory factory;
     private readonly IConfiguration config;
-    private readonly BufferBlock<(string topic, byte[] payload)> mqttQueue;
     private readonly ILogger<MqttPublisher> log;
     private readonly ApplicationConfig appConfig;
     private readonly string mqttTopicRoot;
     private readonly string deviceSerialNumber;
     private readonly bool autoDiscoveryEnabled;
 
-    public MqttPublisher(IMqttFactory factory, IConfiguration config, ILogger<MqttPublisher> log, ApplicationConfig appConfig)
+    // Only the latest unpublished value for each topic is kept.
+    private readonly ConcurrentDictionary<string, byte[]> pending =
+        new ConcurrentDictionary<string, byte[]>();
+
+    // Used only to wake up the publisher when new data arrives.
+    // Maximum count of one is enough, because pending contains the data.
+    private readonly SemaphoreSlim pendingSignal = new SemaphoreSlim(0, 1);
+
+    public MqttPublisher(
+        IMqttFactory factory,
+        IConfiguration config,
+        ILogger<MqttPublisher> log,
+        ApplicationConfig appConfig)
     {
         this.factory = factory;
         this.config = config;
-        mqttQueue = new BufferBlock<(string topic, byte[] payload)>();
         this.log = log;
         this.appConfig = appConfig;
 
@@ -45,78 +56,167 @@ class MqttPublisher
             reg.ValueChanged += Reg_ValueChanged;
         }
 
-        bool autoConfigPerformed = false;
+        try
+        {
+            bool autoConfigPerformed = false;
 
-        var login = config["mqtt:username"];
-        var password = config["mqtt:password"];
-        var server = config["mqtt:broker"];
+            var login = config["mqtt:username"];
+            var password = config["mqtt:password"];
+            var server = config["mqtt:broker"];
 
-        var mqttOptions = new MqttClientOptionsBuilder()
+            var mqttOptions = new MqttClientOptionsBuilder()
 #if DEBUG
-            .WithClientId("PelicanDebug" + deviceSerialNumber)
+                .WithClientId("PelicanDebug" + deviceSerialNumber)
 #else
                 .WithClientId("Pelican" + deviceSerialNumber)
 #endif
-            .WithTcpServer(server)
-            .WithCredentials(login, password)
-            .Build();
+                .WithTcpServer(server)
+                .WithCredentials(login, password)
+                .Build();
 
-        while (true)
+            while (!cancel.IsCancellationRequested)
+            {
+                using var client = factory.CreateMqttClient();
+
+                try
+                {
+                    //
+                    // Connect / reconnect
+                    //
+                    while (!cancel.IsCancellationRequested)
+                    {
+                        try
+                        {
+                            var res = await client.ConnectAsync(
+                                mqttOptions,
+                                cancel);
+
+                            log.LogInformation(
+                                $"MQTT connect result {res.ResultCode}");
+
+                            if (res.ResultCode ==
+                                MqttClientConnectResultCode.Success)
+                            {
+                                break;
+                            }
+                        }
+                        catch (OperationCanceledException)
+                            when (cancel.IsCancellationRequested)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            log.LogWarning(
+                                ex,
+                                "MQTT connection failed");
+                        }
+
+                        await Task.Delay(
+                            TimeSpan.FromSeconds(5),
+                            cancel);
+                    }
+
+                    //
+                    // Home Assistant discovery
+                    //
+                    if (!autoConfigPerformed && autoDiscoveryEnabled)
+                    {
+                        await AutoDiscovery(client, cancel);
+                        autoConfigPerformed = true;
+                    }
+
+                    //
+                    // Publish pending values
+                    //
+                    while (client.IsConnected &&
+                           !cancel.IsCancellationRequested)
+                    {
+                        if (pending.IsEmpty)
+                        {
+                            await pendingSignal.WaitAsync(cancel);
+                        }
+
+                        foreach (var msg in pending.ToArray())
+                        {
+                            if (!client.IsConnected)
+                            {
+                                break;
+                            }
+
+                            try
+                            {
+                                log.LogDebug(
+                                    $"Publishing to topic {msg.Key}");
+
+                                await client.PublishAsync(
+                                    new MqttApplicationMessage
+                                    {
+                                        Topic = msg.Key,
+                                        Payload = msg.Value,
+                                        Retain = true
+                                    },
+                                    cancel);
+
+                                /*
+                                 * Remove only this exact value.
+                                 *
+                                 * If Reg_ValueChanged replaced it with a
+                                 * newer byte[] while PublishAsync was
+                                 * running, Remove() fails and the newer
+                                 * value remains pending.
+                                 */
+                                ((ICollection<
+                                    KeyValuePair<string, byte[]>>)pending)
+                                    .Remove(msg);
+                            }
+                            catch (OperationCanceledException)
+                                when (cancel.IsCancellationRequested)
+                            {
+                                throw;
+                            }
+                            catch (Exception ex)
+                            {
+                                log.LogWarning(
+                                    ex,
+                                    $"MQTT publish failed for {msg.Key}");
+
+                                // Leave the value in pending.
+                                // Reconnect and try again later.
+                                break;
+                            }
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                    when (cancel.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    log.LogWarning(
+                        ex,
+                        "MQTT connection lost, reconnecting");
+                }
+
+                if (!cancel.IsCancellationRequested)
+                {
+                    await Task.Delay(
+                        TimeSpan.FromSeconds(5),
+                        cancel);
+                }
+            }
+        }
+        finally
         {
-            using var client = factory.CreateMqttClient();
-
-            try
+            //
+            // Remove handlers only when Publish() actually terminates,
+            // not when MQTT reconnects.
+            //
+            foreach (var reg in appConfig.ToMqtt)
             {
-                while (true)
-                {
-                    var res = await client.ConnectAsync(mqttOptions, cancel);
-                    log.LogInformation($"MQTT connect result {res.ResultCode}");
-                    if (res.ResultCode == MqttClientConnectResultCode.Success)
-                    {
-                        break;
-                    }
-
-                    await Task.Delay(TimeSpan.FromSeconds(5), cancel);
-                }
-
-                if (!autoConfigPerformed && autoDiscoveryEnabled)
-                {
-                    await AutoDiscovery(client, cancel);
-                    autoConfigPerformed = true;
-                }
-
-                while (true)
-                {
-                    await mqttQueue.OutputAvailableAsync(cancel);
-
-                    if (!client.IsConnected)
-                    {
-                        break;
-                    }
-
-                    var msg = await mqttQueue.ReceiveAsync(cancel);
-
-                    log.LogDebug($"Publishing to topic " + msg.topic);
-
-                    await client.PublishAsync(new MqttApplicationMessage
-                    {
-                        Topic = msg.topic,
-                        Payload = msg.payload,
-                        Retain = true
-                    });
-                }
-            }
-            catch (Exception ex)
-            {
-                log.LogError(ex, ex.Message);
-                throw;
-            }
-            finally
-            {
-                foreach (var reg in appConfig.ToMqtt)
-                {
-                    reg.ValueChanged -= Reg_ValueChanged;
-                }
+                reg.ValueChanged -= Reg_ValueChanged;
             }
         }
     }
@@ -124,21 +224,46 @@ class MqttPublisher
     private void Reg_ValueChanged(object sender, EventArgs e)
     {
         var r = (IMqttRegister)sender;
-        log.LogDebug($"Mqtt register {r.Topic} value changed: {r.Value}");
+
+        log.LogDebug(
+            $"Mqtt register {r.Topic} value changed: {r.Value}");
+
         if (r.Value != null && r.Topic != null)
         {
             var path = mqttTopicRoot + "/" + r.Topic;
-            mqttQueue.Post((path, Encoding.UTF8.GetBytes(r.Value)));
+            var payload = Encoding.UTF8.GetBytes(r.Value);
+
+            //
+            // Replace an older unpublished value for this topic.
+            //
+            pending[path] = payload;
+
+            //
+            // Wake the publisher if it is waiting.
+            //
+            if (pendingSignal.CurrentCount == 0)
+            {
+                pendingSignal.Release();
+            }
         }
     }
 
-    async Task AutoDiscovery(IApplicationMessagePublisher client, CancellationToken cancel)
+    async Task AutoDiscovery(
+        IApplicationMessagePublisher client,
+        CancellationToken cancel)
     {
-        foreach (var reg in appConfig.ToMqtt.Where(r => r.AutoDiscoveryEnabled))
+        foreach (var reg in appConfig.ToMqtt
+                     .Where(r => r.AutoDiscoveryEnabled))
         {
-            var settings = appConfig.AllRegConfigs.Single(r => r.topic == reg.Topic);
-            var uniqueId = $"Pelican{deviceSerialNumber}_{reg.ObjectId}";
-            var configTopic = $"homeassistant/{reg.HomeAssistantPlatform}/{uniqueId}/config";
+            var settings = appConfig.AllRegConfigs
+                .Single(r => r.topic == reg.Topic);
+
+            var uniqueId =
+                $"Pelican{deviceSerialNumber}_{reg.ObjectId}";
+
+            var configTopic =
+                $"homeassistant/{reg.HomeAssistantPlatform}/{uniqueId}/config";
+
             var device = new
             {
                 manufacturer = "Enervent",
@@ -149,6 +274,7 @@ class MqttPublisher
                     "Pelican" + deviceSerialNumber
                 }
             };
+
             object autoConfig;
 
             if (reg.HomeAssistantPlatform == "sensor")
@@ -156,7 +282,8 @@ class MqttPublisher
                 autoConfig = new
                 {
                     state_topic = mqttTopicRoot + "/" + reg.Topic,
-                    unit_of_measurement = reg.HomeAssistantUnitOfMeasurement,
+                    unit_of_measurement =
+                        reg.HomeAssistantUnitOfMeasurement,
                     value_template = "{{ value }}",
                     device_class = reg.HomeAssistantDeviceClass,
                     settings.name,
@@ -169,8 +296,10 @@ class MqttPublisher
                 autoConfig = new
                 {
                     state_topic = mqttTopicRoot + "/" + reg.Topic,
-                    command_topic = mqttTopicRoot + "/" + reg.Topic + "/cmd",
-                    unit_of_measurement = reg.HomeAssistantUnitOfMeasurement,
+                    command_topic =
+                        mqttTopicRoot + "/" + reg.Topic + "/cmd",
+                    unit_of_measurement =
+                        reg.HomeAssistantUnitOfMeasurement,
                     value_template = "{{ value }}",
                     device_class = reg.HomeAssistantDeviceClass,
                     settings.name,
@@ -186,7 +315,8 @@ class MqttPublisher
                 autoConfig = new
                 {
                     state_topic = mqttTopicRoot + "/" + reg.Topic,
-                    command_topic = mqttTopicRoot + "/" + reg.Topic + "/cmd",
+                    command_topic =
+                        mqttTopicRoot + "/" + reg.Topic + "/cmd",
                     settings.name,
                     device,
                     unique_id = uniqueId,
@@ -205,12 +335,16 @@ class MqttPublisher
                     entity_category = "diagnostic"
                 };
             }
-            await client.PublishAsync(new MqttApplicationMessage
-            {
-                Topic = configTopic,
-                Payload = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(autoConfig)),
-                Retain = true
-            }, cancel);
+
+            await client.PublishAsync(
+                new MqttApplicationMessage
+                {
+                    Topic = configTopic,
+                    Payload = Encoding.UTF8.GetBytes(
+                        JsonSerializer.Serialize(autoConfig)),
+                    Retain = true
+                },
+                cancel);
         }
     }
 }
