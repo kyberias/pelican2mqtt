@@ -1,33 +1,35 @@
-﻿using System.Collections.Concurrent;
+﻿using System;
+using System.Linq;
 using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Threading.Tasks.Dataflow;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MQTTnet;
 using MQTTnet.Client;
+using MQTTnet.Client.Connecting;
+using MQTTnet.Client.Options;
+
+namespace pelican2mqtt.Mqtt;
 
 class MqttPublisher
 {
     private readonly IMqttFactory factory;
     private readonly IConfiguration config;
+    private readonly BufferBlock<(string topic, byte[] payload)> mqttQueue;
     private readonly ILogger<MqttPublisher> log;
     private readonly ApplicationConfig appConfig;
     private readonly string mqttTopicRoot;
     private readonly string deviceSerialNumber;
     private readonly bool autoDiscoveryEnabled;
 
-    private readonly ConcurrentDictionary<string, byte[]> pending =
-        new ConcurrentDictionary<string, byte[]>();
-
-    private readonly SemaphoreSlim pendingSignal = new(0, 1);
-
-    public MqttPublisher(
-        IMqttFactory factory,
-        IConfiguration config,
-        ILogger<MqttPublisher> log,
-        ApplicationConfig appConfig)
+    public MqttPublisher(IMqttFactory factory, IConfiguration config, ILogger<MqttPublisher> log, ApplicationConfig appConfig)
     {
         this.factory = factory;
         this.config = config;
+        mqttQueue = new BufferBlock<(string topic, byte[] payload)>();
         this.log = log;
         this.appConfig = appConfig;
 
@@ -43,54 +45,35 @@ class MqttPublisher
             reg.ValueChanged += Reg_ValueChanged;
         }
 
-        try
-        {
-            bool autoConfigPerformed = false;
+        bool autoConfigPerformed = false;
 
-            var login = config["mqtt:username"];
-            var password = config["mqtt:password"];
-            var server = config["mqtt:broker"];
+        var login = config["mqtt:username"];
+        var password = config["mqtt:password"];
+        var server = config["mqtt:broker"];
 
-            var mqttOptions = new MqttClientOptionsBuilder()
+        var mqttOptions = new MqttClientOptionsBuilder()
 #if DEBUG
-                .WithClientId("PelicanDebug" + deviceSerialNumber)
+            .WithClientId("PelicanDebug" + deviceSerialNumber)
 #else
                 .WithClientId("Pelican" + deviceSerialNumber)
 #endif
-                .WithTcpServer(server)
-                .WithCredentials(login, password)
-                .Build();
+            .WithTcpServer(server)
+            .WithCredentials(login, password)
+            .Build();
 
-            while (!cancel.IsCancellationRequested)
+        while (true)
+        {
+            using var client = factory.CreateMqttClient();
+
+            try
             {
-                using var client = factory.CreateMqttClient();
-
-                while (!cancel.IsCancellationRequested)
+                while (true)
                 {
-                    try
+                    var res = await client.ConnectAsync(mqttOptions, cancel);
+                    log.LogInformation($"MQTT connect result {res.ResultCode}");
+                    if (res.ResultCode == MqttClientConnectResultCode.Success)
                     {
-                        var res = await client.ConnectAsync(mqttOptions, cancel);
-
-                        log.LogInformation(
-                            "MQTT connect result {ResultCode}",
-                            res.ResultCode);
-
-                        if (res.ResultCode ==
-                            MqttClientConnectResultCode.Success)
-                        {
-                            break;
-                        }
-                    }
-                    catch (OperationCanceledException)
-                        when (cancel.IsCancellationRequested)
-                    {
-                        throw;
-                    }
-                    catch (Exception ex)
-                    {
-                        log.LogWarning(
-                            ex,
-                            "MQTT connection failed, retrying");
+                        break;
                     }
 
                     await Task.Delay(TimeSpan.FromSeconds(5), cancel);
@@ -102,70 +85,38 @@ class MqttPublisher
                     autoConfigPerformed = true;
                 }
 
-                while (client.IsConnected &&
-                       !cancel.IsCancellationRequested)
+                while (true)
                 {
-                    if (pending.IsEmpty)
+                    await mqttQueue.OutputAvailableAsync(cancel);
+
+                    if (!client.IsConnected)
                     {
-                        await pendingSignal.WaitAsync(cancel);
+                        break;
                     }
 
-                    foreach (var item in pending.ToArray())
+                    var msg = await mqttQueue.ReceiveAsync(cancel);
+
+                    log.LogDebug($"Publishing to topic " + msg.topic);
+
+                    await client.PublishAsync(new MqttApplicationMessage
                     {
-                        if (!client.IsConnected)
-                        {
-                            break;
-                        }
-
-                        try
-                        {
-                            log.LogDebug(
-                                "Publishing to topic {Topic}",
-                                item.Key);
-
-                            await client.PublishAsync(
-                                new MqttApplicationMessage
-                                {
-                                    Topic = item.Key,
-                                    Payload = item.Value,
-                                    Retain = true
-                                },
-                                cancel);
-
-                            ((ICollection<KeyValuePair<string, byte[]>>)pending)
-                                .Remove(item);
-                        }
-                        catch (OperationCanceledException)
-                            when (cancel.IsCancellationRequested)
-                        {
-                            throw;
-                        }
-                        catch (Exception ex)
-                        {
-                            log.LogWarning(
-                                ex,
-                                "MQTT publish failed for {Topic}",
-                                item.Key);
-
-                            break;
-                        }
-                    }
-                }
-
-                if (!cancel.IsCancellationRequested)
-                {
-                    log.LogWarning(
-                        "MQTT connection lost, reconnecting");
-
-                    await Task.Delay(TimeSpan.FromSeconds(1), cancel);
+                        Topic = msg.topic,
+                        Payload = msg.payload,
+                        Retain = true
+                    });
                 }
             }
-        }
-        finally
-        {
-            foreach (var reg in appConfig.ToMqtt)
+            catch (Exception ex)
             {
-                reg.ValueChanged -= Reg_ValueChanged;
+                log.LogError(ex, ex.Message);
+                throw;
+            }
+            finally
+            {
+                foreach (var reg in appConfig.ToMqtt)
+                {
+                    reg.ValueChanged -= Reg_ValueChanged;
+                }
             }
         }
     }
@@ -173,24 +124,93 @@ class MqttPublisher
     private void Reg_ValueChanged(object sender, EventArgs e)
     {
         var r = (IMqttRegister)sender;
-
-        log.LogDebug(
-            "MQTT register {Topic} value changed: {Value}",
-            r.Topic,
-            r.Value);
-
-        if (r.Value == null || r.Topic == null)
+        log.LogDebug($"Mqtt register {r.Topic} value changed: {r.Value}");
+        if (r.Value != null && r.Topic != null)
         {
-            return;
-        }
-
-        var path = mqttTopicRoot + "/" + r.Topic;
-        var payload = Encoding.UTF8.GetBytes(r.Value);
-
-        pending[path] = payload;
-
-        if (pendingSignal.CurrentCount == 0)
-        {
-            pendingSignal.Release();
+            var path = mqttTopicRoot + "/" + r.Topic;
+            mqttQueue.Post((path, Encoding.UTF8.GetBytes(r.Value)));
         }
     }
+
+    async Task AutoDiscovery(IApplicationMessagePublisher client, CancellationToken cancel)
+    {
+        foreach (var reg in appConfig.ToMqtt.Where(r => r.AutoDiscoveryEnabled))
+        {
+            var settings = appConfig.AllRegConfigs.Single(r => r.topic == reg.Topic);
+            var uniqueId = $"Pelican{deviceSerialNumber}_{reg.ObjectId}";
+            var configTopic = $"homeassistant/{reg.HomeAssistantPlatform}/{uniqueId}/config";
+            var device = new
+            {
+                manufacturer = "Enervent",
+                name = "Pelican",
+                model = "ACE-CG",
+                identifiers = new[]
+                {
+                    "Pelican" + deviceSerialNumber
+                }
+            };
+            object autoConfig;
+
+            if (reg.HomeAssistantPlatform == "sensor")
+            {
+                autoConfig = new
+                {
+                    state_topic = mqttTopicRoot + "/" + reg.Topic,
+                    unit_of_measurement = reg.HomeAssistantUnitOfMeasurement,
+                    value_template = "{{ value }}",
+                    device_class = reg.HomeAssistantDeviceClass,
+                    settings.name,
+                    device,
+                    unique_id = uniqueId
+                };
+            }
+            else if (reg.HomeAssistantPlatform == "number")
+            {
+                autoConfig = new
+                {
+                    state_topic = mqttTopicRoot + "/" + reg.Topic,
+                    command_topic = mqttTopicRoot + "/" + reg.Topic + "/cmd",
+                    unit_of_measurement = reg.HomeAssistantUnitOfMeasurement,
+                    value_template = "{{ value }}",
+                    device_class = reg.HomeAssistantDeviceClass,
+                    settings.name,
+                    min = reg.Min,
+                    max = reg.Max,
+                    device,
+                    unique_id = uniqueId,
+                    entity_category = "config"
+                };
+            }
+            else if (reg.HomeAssistantPlatform == "switch")
+            {
+                autoConfig = new
+                {
+                    state_topic = mqttTopicRoot + "/" + reg.Topic,
+                    command_topic = mqttTopicRoot + "/" + reg.Topic + "/cmd",
+                    settings.name,
+                    device,
+                    unique_id = uniqueId,
+                    entity_category = "config"
+                };
+            }
+            else // binary_sensor
+            {
+                autoConfig = new
+                {
+                    state_topic = mqttTopicRoot + "/" + reg.Topic,
+                    device_class = reg.HomeAssistantDeviceClass,
+                    settings.name,
+                    device,
+                    unique_id = uniqueId,
+                    entity_category = "diagnostic"
+                };
+            }
+            await client.PublishAsync(new MqttApplicationMessage
+            {
+                Topic = configTopic,
+                Payload = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(autoConfig)),
+                Retain = true
+            }, cancel);
+        }
+    }
+}
